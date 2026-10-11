@@ -14,7 +14,7 @@
 
 ## Table of contents
 
-1. [Quick start](#quick-start)
+1. [Getting started](#getting-started)
 2. [Repository layout](#repository-layout)
 3. [Shared core architecture](#shared-core-architecture)
 4. Projects
@@ -36,20 +36,144 @@
 
 ---
 
-## Quick start
+## Getting started
+
+### Prerequisites
+
+| Requirement | Version | Check |
+|---|---|---|
+| Python | 3.10 or newer | `python --version` |
+| Git | any recent | `git --version` |
+| OpenAI API key | optional for offline mode, required for real answers | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) |
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/ajeetkumarAI/production-agentic-ai-patterns.git
+cd production-agentic-ai-patterns
+```
+
+### 2. Create and activate a virtual environment
+
+**Windows (PowerShell)**
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+If PowerShell blocks the script, run this once:
 
 ```powershell
-# Windows PowerShell (macOS/Linux: source .venv/bin/activate)
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+**Windows (cmd)**
+```bat
 python -m venv .venv
-.venv\Scripts\activate
+.venv\Scripts\activate.bat
+```
+
+**macOS / Linux**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+### 3. Install dependencies
+
+```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
+```
 
-# .env must contain your key (see .env.example):
-#   OPENAI_API_KEY=sk-...
-#   OPENAI_MODEL=gpt-5-nano
+### 4. Add your OpenAI API key
 
-python -m pytest                          # 38 offline tests
-python -m p01_structured_output.run       # any project: python -m pXX_<name>.run
+Copy the template:
+
+```powershell
+copy .env.example .env      # Windows
+```
+```bash
+cp .env.example .env        # macOS / Linux
+```
+
+Then open `.env` and set your key:
+
+```ini
+OPENAI_API_KEY=sk-...your-key...
+OPENAI_MODEL=gpt-5-nano
+OPENAI_REASONING_EFFORT=low
+```
+
+> `.env` is listed in `.gitignore`, so your key is never committed. If you skip this step, every demo still runs in **offline mock mode**, which shows the plumbing with placeholder answers.
+
+### 5. Verify the setup
+
+```bash
+python -m pytest
+```
+
+You should see `38 passed`. The tests are offline and cost nothing.
+
+Then check that your key is picked up:
+
+```bash
+python -c "from common import config; print('real LLM mode:', config.use_real_llm(), '| model:', config.DEFAULT_MODEL)"
+```
+
+You should see `real LLM mode: True | model: gpt-5-nano`.
+
+### 6. Run the projects
+
+Always run demos from the **repository root** with `python -m`:
+
+```bash
+python -m p01_structured_output.run          # P1  structured output + validation retries
+python -m p02_rag_citations.run              # P2  RAG with verified citations
+python -m p03_react_planning.run             # P3  ReAct agent with loop guards
+python -m p04_multi_tool_orchestrator.run    # P4  parallel multi-tool orchestration
+python -m p05_memory_agent.run               # P5  memory + cross-device sync
+python -m p06_hitl_approval.run              # P6  human approval (interactive; add --auto to skip prompts)
+python -m p07_cost_router.run                # P7  cost-aware model routing
+python -m p08_event_automation.run           # P8  webhooks, retries, dead-letter queue
+python -m p09_multi_agent_debate.run         # P9  multi-agent debate + voting
+python -m p10_self_reflective.run            # P10 LLM-as-judge self-improvement
+python -m p11_observability.run              # P11 tracing, alerts, canary rollback
+python -m p12_oss_contribution.examples.demo_graph   # P12 LoopGuard on a LangGraph agent
+python -m p12_oss_contribution.benchmarks.bench      # P12 benchmark (no API cost)
+```
+
+Each demo prints its token usage and **USD cost**. Logs, SQLite databases and traces are written to `data/`.
+
+### 7. Start the web services (optional)
+
+| Service | Command | Open |
+|---|---|---|
+| P6 reviewer API | `uvicorn p06_hitl_approval.api:app --port 8006` | http://localhost:8006/docs |
+| P8 webhook receiver | `uvicorn p08_event_automation.api:app --port 8008` | http://localhost:8008/docs |
+| P11 ops dashboard | `uvicorn p11_observability.dashboard:app --port 8011` | http://localhost:8011/ |
+
+`/docs` is FastAPI's interactive Swagger UI, where you can try every endpoint from the browser. For P11, run `python -m p11_observability.run` first so the dashboard has data.
+
+### 8. Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `ModuleNotFoundError: No module named 'common'` | Run from the repo root with `python -m pXX_name.run`, not `python pXX_name/run.py` |
+| Demo prints `using offline MockLLM` | `.env` is missing or still holds the placeholder key; redo step 4 |
+| `AuthenticationError` / 401 | Key is wrong or revoked; create a new one |
+| `RateLimitError` / 429 | Add billing credit on your OpenAI account; the client already retries with backoff |
+| Empty answers / `finish_reason=length` | Reasoning used the whole token cap; set `OPENAI_REASONING_EFFORT=minimal` |
+| Want a clean slate | Delete the `data/` folder contents; DBs and logs are recreated automatically |
+
+### Contributing / updating your fork
+
+```bash
+git checkout -b feature/my-change
+# ...edit, then:
+python -m pytest
+git add . && git commit -m "describe your change"
+git push -u origin feature/my-change      # open a Pull Request on GitHub
 ```
 
 The API key is read **only** from `.env` by `common/config.py`. Every project then gets its client from `common.llm.get_llm()`, which follows these rules:
@@ -393,7 +517,7 @@ The optional `gpt-5-mini` tier is added with `ROUTER_ENABLE_MINI=1`.
 **Goal:** production automation, not demos. It listens to webhooks and queues, executes workflows on triggers with idempotent execution, handles dead letters, and retries with backoff.
 
 ```mermaid
-flowchart LR
+flowchart TD
     SRC["Payment provider"] -->|"POST /webhooks/{source}<br/>X-Signature: HMAC-SHA256"| API["FastAPI receiver"]
     API --> SIG{"signature valid?"}
     SIG -->|no| R401["401"]
